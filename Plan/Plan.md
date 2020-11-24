@@ -1,38 +1,28 @@
 # End-to-end Argument Mining (AM)
 
 - [1. Goal](#1-goal)
-- [2. Problem description](#2-problem-description)
+- [2. Project Details](#2-project-details)
 - [3. Schedule](#3-schedule)
 - [4. Supervisors](#4-supervisors)
 - [References](#references)
 
 ## 1. Goal
 
-Automatic identification and extraction of arguments presented in natural language texts.
+Implementing a model for End-To-End Argument Mining that fits into Axel Almqusit (phd student at CLASP) resarch of creating a resource for Argument Mining.
 
-## 2. Problem description
+## 2. Project Details
 
-AM deals with finding argumentation structure in unstructured text. This proceess involves mainly two stages[[1]](#1)[[2]](#2):
-
-1. Arguments extraction, which involves
-   1. Arguments Identification: Component segmentation of text to identify arguments locations and thier boundery within the text.
-   2. Arguments components Indentification: Classify identified arguemnts into different classes such as claim,  premise
-
-2. Relations prediction, which involves finding the relation between argument components such as against, support, etc.
-
-Example: [[1]](#1).
-
-Since it killed many marine lives *(Premise)*,tourism has threatened nature *(Claim)*.
+The student will implement the LSTM-ER introduced in [1])(1) to solve End-To-End Argument Mining. The challanges will consist of understanding the relevant litterature, implementing and adding documentation and fitting the model into the existing Argument Mining framework created by Axel Almquist. ِAn additional optional task is to replicate the study presented in the original paper.
 
 ## 3. Schedule
 
 The project is segemented into five major steps:
 
-1. Survey
-2. Impelementation
-3. Result analysis
-4. Re-Implementation and re-analysis (if needed)
-5. Reporting and Presentation
+1. Survey the tree LSTM
+2. Outline of model implementation
+3. Model Implementation
+4. Experiments
+5. Result Analysis
 
 Refer to the appendix A for the time schedule.
 
@@ -46,6 +36,3 @@ Refer to the appendix A for the time schedule.
 
 <a id="1">[1]</a>
 Eger, S., Daxenberger, J., & Gurevych, I. (2017). Neural end-to-end learning for computational argumentation mining. arXiv preprint arXiv:1704.06104.
-
-<a id="2">[2]</a>
-Cabrio, E., & Villata, S. (2018, July). Five Years of Argument Mining: a Data-driven Analysis. In IJCAI (Vol. 18, pp. 5427-5433).
