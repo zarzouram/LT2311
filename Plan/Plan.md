@@ -12,7 +12,7 @@ Implementing a model for End-To-End Argument Mining that fits into Axel Almqusit
 
 ## 2. Project Details
 
-The student will implement the LSTM-ER introduced in [1])(1) to solve End-To-End Argument Mining. The challanges will consist of understanding the relevant litterature, implementing and adding documentation and fitting the model into the existing Argument Mining framework created by Axel Almquist. ِAn additional optional task is to replicate the study presented in the original paper.
+The student will implement the LSTM-ER introduced in [1](1) to solve End-To-End Argument Mining. The challanges will consist of understanding the relevant litterature, implementing and adding documentation and fitting the model into the existing Argument Mining framework created by Axel Almquist. ِAn additional optional task is to replicate the study presented in the original paper.
 
 ## 3. Schedule
 
