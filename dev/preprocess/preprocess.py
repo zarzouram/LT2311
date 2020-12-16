@@ -28,8 +28,8 @@ class DEPENDENCYDGL():
                 continue
             else:
                 # Forward path: bottom-up = leaves-root
-                u1.append(token.head.i)
-                v1.append(token.i)
+                u1.append(token.i)
+                v1.append(token.head.i)
 
         g_lr = dgl.graph((u1, v1), device=self.device)  # leaves to root
         g_lr.ndata["type"] = th.tensor(n_type, dtype=th.uint8)
