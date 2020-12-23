@@ -49,8 +49,8 @@ class TreeLSTMCell(nn.Module):
     def __init__(self, x_size, h_size, N=2):
         super(TreeLSTMCell, self).__init__()
         self.W_iou = nn.Linear(x_size, 3 * h_size, bias=False)
+        self.Um0_iou = nn.Linear(h_size, 3 * h_size, bias=False)
         self.Um1_iou = nn.Linear(h_size, 3 * h_size, bias=False)
-        self.Um2_iou = nn.Linear(h_size, 3 * h_size, bias=False)
         self.b_iou = nn.Parameter(th.zeros(1, 3 * h_size))
         self.U_f = nn.Linear(N * h_size, N * h_size)
 
@@ -64,7 +64,24 @@ class TreeLSTMCell(nn.Module):
         return {'iou': self.U_iou(h_cat), 'c': c}
 
     def apply_node_func(self, nodes):
-        iou = nodes.data['iou'] + self.b_iou
+        type_n = nodes.data["type_n"]
+        nodes_lst = nodes.nodes()
+        type_n0_id = (type_n == 0).nonzero().view(-1)
+        type_n1_id = (type_n == 1).nonzero().view(-1)
+        if type_n0_id.nelement():
+            h_0 = nodes.data["h"][type_n0_id, :]
+            h_0 = th.sum(h_0, dim=0)
+        else:
+            h_iou_0 = th.zeros(type_n0_id.size(0), 3 * h_size)
+
+        if type_n1_id.nelement():
+            h_1 = nodes.data["h"][type_n1_id, :]
+        else:
+            h_iou_1 = th.zeros(type_n1_id.size(0), 3 * h_size)
+
+        h_iou = h_iou_0 + h_iou_1
+
+        iou = nodes.data['iou'] + h_iou + self.b_iou
         i, o, u = th.chunk(iou, 3, 1)
         i, o, u = th.sigmoid(i), th.sigmoid(o), th.tanh(u)
         c = i * u + nodes.data['c']
@@ -154,16 +171,15 @@ vocab = dummy_word2id(text)
 dep = prep.DependencyDGL(text, vocab)
 
 # %%
-plot_tree(dgl.to_homogeneous(dep.g).to_networkx())
-print(dep.get_shortest(44, 19))
-
-# %%
-dep.graph_process([19, 44], 0)
-print(dep.g.ndata)
-
-# %%
 g = dep.g
-n = g.number_of_nodes()
+dep.graph_process([19, 44], 0)
+G = dgl.batch([g, g])
+print(G.ndata["type_n"])
+plot_tree(dgl.to_homogeneous(G).to_networkx())
+
+
+# %%
+n = G.number_of_nodes()
 h_size = 5
 emb_size = 6
 
@@ -178,5 +194,5 @@ model = TreeLSTM(   len(vocab),
 
 
 # %%
-model(g, h, c)
+model(G, h, c)
 # %%

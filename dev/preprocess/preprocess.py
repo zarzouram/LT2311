@@ -55,7 +55,7 @@ class DependencyDGL():
                                         dtype=th.long,
                                         device=self.device)
         n = g_lr.number_of_nodes()
-        g_lr.ndata["type_n"] = th.zeros((n, 1))
+        g_lr.ndata["type_n"] = th.zeros((n))
         return g_lr
 
     def get_shortest(self, start_n, end_n):
@@ -67,7 +67,7 @@ class DependencyDGL():
 
     def __change_nodes_type(self, nodes):
         n = nodes.data["type_n"].size()[0]
-        type_nodes = th.ones((n, 1))
+        type_nodes = th.ones((n))
         return {"type_n": type_nodes}
 
     def graph_process(self, idx: list, pross_type=0):
