@@ -28,7 +28,7 @@ class DependencyDGL():
     def __dep_graph(self, graph_type: int, word2id: dict):
         # source node, token: u1
         # destination node, token head: v1
-        u1 = []; v1 = []; roots = []; token_id = []
+        u1 = [46]; v1 = [42]; roots = []; token_id = [1]
 
         # construct graph u_i -> v_i
         for token in self.text_parsed:
@@ -55,7 +55,7 @@ class DependencyDGL():
                                         dtype=th.long,
                                         device=self.device)
         n = g_lr.number_of_nodes()
-        g_lr.ndata["type_n"] = th.zeros((n))
+        g_lr.ndata["type_n"] = th.zeros((n), dtype=th.long)
         return g_lr
 
     def get_shortest(self, start_n, end_n):
@@ -67,7 +67,7 @@ class DependencyDGL():
 
     def __change_nodes_type(self, nodes):
         n = nodes.data["type_n"].size()[0]
-        type_nodes = th.ones((n))
+        type_nodes = th.ones((n), dtype=th.long)
         return {"type_n": type_nodes}
 
     def graph_process(self, idx: list, pross_type=0):
