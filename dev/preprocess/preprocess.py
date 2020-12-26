@@ -12,8 +12,6 @@ class DependencyDGL():
         else:
             self.device = device
 
-        # NOTE:
-        # ## EITHER PARSE OR RECONSTRUCT ## #
         self.text_parsed = self.__dep_parse(text)
         # convert dependency output to graph
         self.g = self.__dep_graph(graph_type, word2id)
@@ -26,6 +24,7 @@ class DependencyDGL():
         return doc
 
     def __dep_graph(self, graph_type: int, word2id: dict):
+        # Construct the graph from the parser
         # source node, token: u1
         # destination node, token head: v1
         u1 = [46]; v1 = [42]; roots = []; token_id = [1]
@@ -44,7 +43,7 @@ class DependencyDGL():
         # connect multiple graphs to make one graph
         # TODO:
         # add multiple ways to construct the document tree from sentences tree
-        if graph_type == 0 and len(roots) > 1:
+        if graph_type == 0 and len(roots) > 1:  # connecting roots
             u1.extend(roots[:-1])
             v1.extend(roots[1:])
 
@@ -66,12 +65,14 @@ class DependencyDGL():
         return thepath
 
     def __change_nodes_type(self, nodes):
+        # Mark node type_1
         n = nodes.data["type_n"].size()[0]
         type_nodes = th.ones((n), dtype=th.long)
         return {"type_n": type_nodes}
 
     def graph_process(self, idx: list, pross_type=0):
-        if pross_type == 0:  # test
+        # extract subgraph and/or mark node type_1
+        if pross_type == 0:  # full-Tree with shortest path node type
             nodes_shortest = self.get_shortest(idx[0], idx[1])
             self.g.apply_nodes( func=self.__change_nodes_type,
                                 v=nodes_shortest)
