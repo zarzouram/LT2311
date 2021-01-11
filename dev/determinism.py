@@ -12,3 +12,4 @@ th.backends.cudnn.deterministic = True
 th.backends.cudnn.benchmark = False
 th.cuda.manual_seed_all(seed)
 th.cuda.manual_seed(seed)
+CUDA_LAUNCH_BLOCKING = 1

@@ -2,13 +2,14 @@ import spacy
 import torch as th
 import networkx as nx
 import dgl
+
 # import matplotlib.pyplot as plt
 
 
-class DependencyDGL():
+class DependencyDGL:
     def __init__(self, text, word2id: dict, graph_type=0, device="cpu"):
         if device == "cpu":
-            self.device = th.device('cpu')
+            self.device = th.device("cpu")
         else:
             self.device = device
 
@@ -27,7 +28,10 @@ class DependencyDGL():
         # Construct the graph from the parser
         # source node, token: u1
         # destination node, token head: v1
-        u1 = [46]; v1 = [42]; roots = []; token_id = [1]
+        u1 = []
+        v1 = []
+        roots = []
+        token_id = []
 
         # construct graph u_i -> v_i
         for token in self.text_parsed:
@@ -50,9 +54,9 @@ class DependencyDGL():
         # graph from leaves to root direction
         g_lr = dgl.graph((u1, v1), device=self.device)
         # add vocab word_id as an attribute to each node
-        g_lr.ndata["word"] = th.tensor( token_id,
-                                        dtype=th.long,
-                                        device=self.device)
+        g_lr.ndata["word"] = th.tensor(token_id,
+                                       dtype=th.long,
+                                       device=self.device)
         n = g_lr.number_of_nodes()
         g_lr.ndata["type_n"] = th.zeros((n), dtype=th.long)
         return g_lr
@@ -74,15 +78,4 @@ class DependencyDGL():
         # extract subgraph and/or mark node type_1
         if pross_type == 0:  # full-Tree with shortest path node type
             nodes_shortest = self.get_shortest(idx[0], idx[1])
-            self.g.apply_nodes( func=self.__change_nodes_type,
-                                v=nodes_shortest)
-
-
-if __name__ == "__main__":
-    # dummy example
-    text = """From this point of view, I firmly believe that we should attach more importance to cooperation during primary education.
-    First of all, through cooperation, children can learn about interpersonal skills which are significant in the future life of all students."""
-    s1 = list(range(10, 20))
-    s2 = list(range(26, 46))
-    s1.extend(s2)
-    dep = DependencyDGL(text, s1)
+            self.g.apply_nodes(func=self.__change_nodes_type, v=nodes_shortest)
