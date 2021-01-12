@@ -279,26 +279,6 @@ class TreeLSTMCell(nn.Module):
         return {"h": h, "c": c}
 
 
-class Embedings(nn.Module):
-    def __init__(self,
-                 num_vocabs,
-                 emb_size,
-                 emb_type=None,
-                 pretrained_emb=None):
-
-        super(Embedings, self).__init__()
-
-        if emb_type is not None and pretrained_emb is None:
-            raise ValueError('missing pretrained embedding "pretrained_emb"')
-
-        self.embed = nn.Embedding(num_vocabs, emb_size)
-        if emb_type == "Glove":
-            self.embed.weight.data.copy_(pretrained_emb)
-            self.embed.weight.requires_grad = True
-        else:
-            pass
-
-
 class TreeLSTM(nn.Module):
     def __init__(
         self,
@@ -454,11 +434,13 @@ class NerModule(nn.Module):
 
             # softmax, label prediction, label embedding
             prob_dist = F.softmax(logits_i, 0)  # (B, NE-OUT)
-            prediction = th.max(prob_dist, 1)[1]
-            label_id_predicted.append(prediction.detach().tolist())
-            label_predicted_embedded = self.ne_embedding.embed(prediction)
-
-            v_t_old = label_predicted_embedded  # v_{t-1} <- v_t
+            prediction_id = th.max(prob_dist, 1)[1]
+            label_id_predicted.append(prediction_id.detach().tolist())
+            label_one_hot = th.zeros(batch_size,
+                                     self.label_embedding_size,
+                                     device=self.device_param)
+            label_one_hot[th.arange(batch_size), prediction_id] = 1
+            v_t_old = label_one_hot  # v_{t-1} <- v_t
 
         # Reshape logits dimension from (SEQ, B, NE-OUT) to (B, SEQ, NE-OUT)
         # Reshape label_id_predicted from (SEQ, B) to (B, SEQ)
@@ -467,4 +449,22 @@ class NerModule(nn.Module):
         label_id_predicted = th.tensor(label_id_predicted,
                                        device=self.device_param,
                                        dtype=th.float).view(batch_size, -1)
+
         return logits, label_id_predicted
+
+
+# class LSTM_RE(nn.Module):
+#     def __init__(
+#         self,
+#         seq_embedding_size,
+#         label_embedding_size,
+#         h_size,
+#         ner_hidden_size,
+#         ner_output_size,
+#         ne_embedding,
+#         bidirectional=True,
+#         num_layers=1,
+#         dropout=0,
+#         bidirectional=True,
+#     ):
+#         super(LSTM_RE, self).__init__()

@@ -117,7 +117,7 @@ word_vocab = dummy_word2id(text).vocab
 label_vocab = dummy_word2id(label)
 word_seq = [word_vocab[token] for token in text.split()]
 word_seq = th.tensor(word_seq, dtype=th.long).view(1, -1)
-word_seq = th.cat((word_seq, word_seq), dim=0)  # batch
+word_seq = th.cat((word_seq, word_seq, word_seq), dim=0)  # batch
 
 # Model parameters
 h_size = 10
