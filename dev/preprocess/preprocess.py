@@ -1,21 +1,12 @@
 import spacy
-import torch as th
-import networkx as nx
-import dgl
-
-# import matplotlib.pyplot as plt
 
 
-class DependencyDGL:
-    def __init__(self, text, word2id: dict, graph_type=0, device="cpu"):
-        if device == "cpu":
-            self.device = th.device("cpu")
-        else:
-            self.device = device
+class DependencyG:
+    def __init__(self, text):
 
         self.text_parsed = self.__dep_parse(text)
         # convert dependency output to graph
-        self.g = self.__dep_graph(graph_type, word2id)
+        self.u, self.v, self.dep, self.r, self.sent_end = self.__dep_graph()
 
     def __dep_parse(self, text):
         # parse using Spacy.
@@ -24,58 +15,31 @@ class DependencyDGL:
         doc = nlp(text)
         return doc
 
-    def __dep_graph(self, graph_type: int, word2id: dict):
+    def __dep_graph(self):
         # Construct the graph from the parser
-        # source node, token: u1
-        # destination node, token head: v1
+        # graph: G((u1,v1), dep). u1 --dep--> v1
         u1 = []
         v1 = []
-        roots = []
-        token_id = []
+        dep = []
+        is_root = []  # 1 if u is the root
+        is_sent_end = []  # 1 if u is the end of the sentence
 
-        # construct graph u_i -> v_i
+        # fill u1, v1, dep, is_root, is_sent_end
         for token in self.text_parsed:
-            token_id.append(word2id[token.text])
             if token.dep_ == "ROOT":
-                roots.append(token.i)
+                is_root.append(1)
+                is_sent_end.append(0)
+                continue
+
+            if token.is_sent_end:
+                is_sent_end.append(1)
             else:
-                # Forward path:
-                # bottom-up = leaves-root (word->head)
-                u1.append(token.i)
-                v1.append(token.head.i)
+                is_sent_end.append(0)
 
-        # connect multiple graphs to make one graph
-        # TODO:
-        # add multiple ways to construct the document tree from sentences tree
-        if graph_type == 0 and len(roots) > 1:  # connecting roots
-            u1.extend(roots[:-1])
-            v1.extend(roots[1:])
+            # leaves-root (word--dep-->head)
+            is_root.append(0)
+            u1.append(token.i)
+            v1.append(token.head.i)
+            dep.append(token.dep)
 
-        # graph from leaves to root direction
-        g_lr = dgl.graph((u1, v1), device=self.device)
-        # add vocab word_id as an attribute to each node
-        g_lr.ndata["word"] = th.tensor(token_id,
-                                       dtype=th.long,
-                                       device=self.device)
-        n = g_lr.number_of_nodes()
-        g_lr.ndata["type_n"] = th.zeros((n), dtype=th.long)
-        return g_lr
-
-    def get_shortest(self, start_n, end_n):
-        # get the shortest path between two nodes
-        # convert dgl to networks graph
-        g = self.g.to_networkx().to_undirected()
-        thepath = nx.shortest_path(g, source=start_n, target=end_n)
-        return thepath
-
-    def __change_nodes_type(self, nodes):
-        # Mark node type_1
-        n = nodes.data["type_n"].size()[0]
-        type_nodes = th.ones((n), dtype=th.long)
-        return {"type_n": type_nodes}
-
-    def graph_process(self, idx: list, pross_type=0):
-        # extract subgraph and/or mark node type_1
-        if pross_type == 0:  # full-Tree with shortest path node type
-            nodes_shortest = self.get_shortest(idx[0], idx[1])
-            self.g.apply_nodes(func=self.__change_nodes_type, v=nodes_shortest)
+        return u1, v1, dep, is_root, is_sent_end
