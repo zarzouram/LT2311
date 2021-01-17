@@ -188,6 +188,8 @@ E. TreeLSTMCell Impelementation:
 
 """
 
+from collections import defaultdict
+import itertools as it
 import numpy as np
 import dgl
 import torch as th
@@ -294,7 +296,7 @@ class TreeLSTM(nn.Module):
         self.TeeLSTM_cell = TreeLSTMCell(embedding_dim, h_size)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, g, h, c):
+    def forward(self, g, root, leaves, h, c):
         """Compute modified N-ary tree-lstm (LSTM-ER) prediction given a batch.
         Parameters.
         ----------
@@ -311,7 +313,6 @@ class TreeLSTM(nn.Module):
         """
 
         # Tree-LSTM (LSTM-ER) according to arXiv:1601.00770v3 sections 3.3 & 3.4
-        # g.ndata["emb"] = self.dropout(embeddings)
         g.ndata["h"] = h
         g.ndata["c"] = c
 
@@ -326,7 +327,7 @@ class TreeLSTM(nn.Module):
             reduce_func=self.TeeLSTM_cell.reduce_func,
             apply_node_func=self.TeeLSTM_cell.apply_node_func,
         )
-        logits = self.dropout(g.ndata.pop("h"))
+        logits = g.ndata.pop("h")[root, :]
 
         if self.bidirectional:
             # propagate top bottom direction
@@ -337,7 +338,7 @@ class TreeLSTM(nn.Module):
                 apply_node_func=self.TeeLSTM_cell.apply_node_func,
                 reverse=True,
             )
-            h_tb = self.dropout(g_copy.ndata.pop("h"))
+            h_tb = g_copy.ndata.pop("h")[leaves, :]
             # concatenate both tree directions
             logits = th.cat((logits, h_tb), dim=1)
 
@@ -347,12 +348,11 @@ class TreeLSTM(nn.Module):
 class NerModule(nn.Module):
     def __init__(
         self,
-        seq_embedding_size,
+        token_embedding_size,
         label_embedding_size,
         h_size,
         ner_hidden_size,
         ner_output_size,
-        ne_embedding,
         bidirectional=True,
         num_layers=1,
         dropout=0,
@@ -362,13 +362,10 @@ class NerModule(nn.Module):
         self.device_param = nn.Parameter(th.empty(0)).device
         self.label_embedding_size = label_embedding_size
 
-        # entities' label embedding layer
-        self.ne_embedding = ne_embedding
-
         # Entity label prediction according to arXiv:1601.00770v3, section 3.4
         # Sequential LSTM layer
         self.seqLSTM = nn.LSTM(
-            input_size=seq_embedding_size,
+            input_size=token_embedding_size,
             hidden_size=h_size,
             bidirectional=bidirectional,
             batch_first=True,
@@ -389,14 +386,12 @@ class NerModule(nn.Module):
     def forward(self, batch_embedded, h=None, c=None):
         """Compute logits of and predict entities' label.
         ----------
-        batch_embedded : Tensor
-                         (B, SEQ, H)
-                         It is expected that the feeded sequences are already
-                         embeded.
-        h              : Tensor
-                         Intial hidden state for the sequential LSTM
-        c              : Tensor
-                         Cell hidden state for the sequential LSTM
+        g :     dgl.DGLGraph
+                Tree for computation.
+        h :     Tensor
+                Intial hidden state for the sequential LSTM
+        c :     Tensor
+                Cell hidden state for the sequential LSTM
 
         Returns
         -------
@@ -448,23 +443,102 @@ class NerModule(nn.Module):
                            dtype=th.float).view(batch_size, seq_length, -1)
         label_id_predicted = th.tensor(label_id_predicted,
                                        device=self.device_param,
-                                       dtype=th.float).view(batch_size, -1)
+                                       dtype=th.long).view(batch_size, -1)
 
         return logits, label_id_predicted
 
 
-# class LSTM_RE(nn.Module):
-#     def __init__(
-#         self,
-#         seq_embedding_size,
-#         label_embedding_size,
-#         h_size,
-#         ner_hidden_size,
-#         ner_output_size,
-#         ne_embedding,
-#         bidirectional=True,
-#         num_layers=1,
-#         dropout=0,
-#         bidirectional=True,
-#     ):
-#         super(LSTM_RE, self).__init__()
+class LSTM_RE(nn.Module):
+    def __init__(
+        self,
+        token_embedding_size,  # Embed dimension for tokens
+        label_embedding_size,  # Embed dimension for entity label
+        dep_embedding_size,  # Embed dimension for depedency label
+        seq_lstm_h_size,  # Sequential LSTM hidden size
+        tree_lstm_h_size,  # Tree LSTM hidden size
+        ner_hidden_size,  # Entity recognition layer hidden size
+        ner_output_size,  # Entity recognition layer output size
+        re_hidden_size,  # Relation extraction layer hidden size
+        re_output_size,  # Relation extraction layer output size
+        seq_lstm_num_layers=1,  # Sequential LSTM number of layer
+        lstm_bidirectional=True,  # Sequential LSTM bidirection
+        tree_bidirectional=True,  # Tree LSTM bidirection
+        dropout=0,
+    ):
+        super(LSTM_RE, self).__init__()
+
+        # Entity recognition module
+        self.module_ner = nn.NerModule(
+            token_embedding_size=token_embedding_size,
+            label_embedding_size=label_embedding_size,
+            h_size=ner_hidden_size,
+            ner_hidden_size=ner_hidden_size,
+            ner_output_size=ner_output_size,
+            bidirectional=lstm_bidirectional,
+            num_layers=seq_lstm_num_layers,
+            dropout=dropout)
+
+        # Relation extraction module
+        n = 3 if tree_bidirectional else 1
+        re_input_size = tree_lstm_h_size * n
+        self.module_re = nn.Sequential(
+            nn.TreeLSTM(embedding_dim=token_embedding_size,
+                        h_size=tree_lstm_h_size,
+                        dropout=dropout,
+                        bidirectional=tree_bidirectional),
+            nn.Linear(re_input_size, re_hidden_size), nn.Tanh(),
+            nn.Linear(re_hidden_size, re_output_size))
+
+    def forward(self, batch, ner_notBI, h=None, c=None):
+        """Compute logits of and predict entities' label.
+        ----------
+
+
+        Returns
+        -------
+
+        """
+        # pos, u, v, dep, is_root, is_sent_end
+        # batch_size = batch.size(0)
+        word_embs = batch["word"]
+        pos_embd = batch["pos"]
+        # dep = batch["dep"]
+        # u = batch["u"]
+        # v = batch["v"]
+        # is_root = batch["roots"]
+        # is_sent_end = batch["SE"]
+
+        # LSTM
+        # QSTN Is it important to initialize h, c?
+        emb = th.cat((word_embs, pos_embd), dim=1)
+        logits_ner, ne_predtd = self.module_ner(emb)
+
+        # ne_predicted (B, SEQ) is the predicted entities' label.
+        # 1. Mask ne_predtd's elements (entities id) by zero if the element
+        #    (entitt id) is not the last word
+        # 2. Group sequences that have the same numebr of masked_entity_id = 1
+
+        # group data, {number_masked_entity: seq_id}
+        masked_data = defaultdict(list)
+        masked_values = (ne_predtd[..., None].detach() == ner_notBI).any(2)  # 1
+        # step: 2
+        for seq_id, num_mask_ne in enumerate(masked_values.sum(dim=1).tolist()):
+            masked_data[num_mask_ne] = seq_id
+
+        relations, seq_ids = sub_batch(masked_values, masked_data)
+
+
+def sub_batch(masked_values, masked_data):
+    # NOTE For loop is needed is the number of items are different
+    for num_mask_ne, seq_ids in masked_data.items():
+        # select sequences that have the same number of masked entities and
+        # get the entity_id of the last word
+        seq_ids = th.tensor(seq_ids, dtype=th.long)
+        sub_mask = th.index_select(masked_values, 0, seq_ids)
+        last_word_id = th.nonzero(sub_mask)[:, 1].view(num_mask_ne, -1)
+        # get relations, in both direction
+        ne_relations = [
+            list(it.permutations(idx)) for idx in last_word_id.tolist()
+        ]
+
+        yield ne_relations, seq_ids
