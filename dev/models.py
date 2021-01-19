@@ -468,28 +468,27 @@ class LSTM_RE(nn.Module):
         super(LSTM_RE, self).__init__()
 
         # Entity recognition module
-        self.module_ner = nn.NerModule(
-            token_embedding_size=token_embedding_size,
-            label_embedding_size=label_embedding_size,
-            h_size=ner_hidden_size,
-            ner_hidden_size=ner_hidden_size,
-            ner_output_size=ner_output_size,
-            bidirectional=lstm_bidirectional,
-            num_layers=seq_lstm_num_layers,
-            dropout=dropout)
+        self.module_ner = NerModule(token_embedding_size=token_embedding_size,
+                                    label_embedding_size=label_embedding_size,
+                                    h_size=ner_hidden_size,
+                                    ner_hidden_size=ner_hidden_size,
+                                    ner_output_size=ner_output_size,
+                                    bidirectional=lstm_bidirectional,
+                                    num_layers=seq_lstm_num_layers,
+                                    dropout=dropout)
 
         # Relation extraction module
         n = 3 if tree_bidirectional else 1
         re_input_size = tree_lstm_h_size * n
         self.module_re = nn.Sequential(
-            nn.TreeLSTM(embedding_dim=token_embedding_size,
-                        h_size=tree_lstm_h_size,
-                        dropout=dropout,
-                        bidirectional=tree_bidirectional),
+            TreeLSTM(embedding_dim=token_embedding_size,
+                     h_size=tree_lstm_h_size,
+                     dropout=dropout,
+                     bidirectional=tree_bidirectional),
             nn.Linear(re_input_size, re_hidden_size), nn.Tanh(),
             nn.Linear(re_hidden_size, re_output_size))
 
-    def forward(self, batch, ner_notBI, h=None, c=None):
+    def forward(self, batch, not_entity_id, h=None, c=None):
         """Compute logits of and predict entities' label.
         ----------
 
@@ -501,44 +500,73 @@ class LSTM_RE(nn.Module):
         # pos, u, v, dep, is_root, is_sent_end
         # batch_size = batch.size(0)
         word_embs = batch["word"]
-        pos_embd = batch["pos"]
         # dep = batch["dep"]
         # u = batch["u"]
         # v = batch["v"]
         # is_root = batch["roots"]
         # is_sent_end = batch["SE"]
 
-        # LSTM
+        # NER Module ... Sequential LSTM
         # QSTN Is it important to initialize h, c?
-        emb = th.cat((word_embs, pos_embd), dim=1)
-        logits_ner, ne_predtd = self.module_ner(emb)
+        logits_ner, ne_predtd = self.module_ner(word_embs)
 
-        # ne_predicted (B, SEQ) is the predicted entities' label.
-        # 1. Mask ne_predtd's elements (entities id) by zero if the element
-        #    (entitt id) is not the last word
-        # 2. Group sequences that have the same numebr of masked_entity_id = 1
-
-        # group data, {number_masked_entity: seq_id}
-        masked_data = defaultdict(list)
-        masked_values = (ne_predtd[..., None].detach() == ner_notBI).any(2)  # 1
-        # step: 2
-        for seq_id, num_mask_ne in enumerate(masked_values.sum(dim=1).tolist()):
-            masked_data[num_mask_ne] = seq_id
-
-        relations, seq_ids = sub_batch(masked_values, masked_data)
+        # Get all possible relations in both direction of the last token of the
+        # detected entities.
+        relations, seq_ids = sub_batch(ne_predtd, not_entity_id)
 
 
-def sub_batch(masked_values, masked_data):
+def sub_batch(predictions, word_norm_idx):
+    """
+    """
+    # 1. Get predicted entities' last token
+    #    a. mask non entity tokens with False
+    #    b. shift right mask, fill the last token with False
+    #    c. bitwise-and the mask with the negation of its right shifted version
+    #
+    # Example, "O" is non entity X is entity
+    # True-vale: t, False-value: empty
+    # +----------+---+---+---+---+---+---+---+---+---+
+    # | SEQ      | X | X | O | X | X | O | X | X | X |
+    # | MASK     | T | T |   | T | T |   | T | T | T |
+    # | N-R-SHFT |   | T |   |   | T |   |   |   | T |
+    # +----------+---+---+---+---+---+---+---+---+---+
+    # | LAST-TKN |   | T |   |   | T |   |   |   | T |
+    # +----------+---+---+---+---+---+---+---+---+---+
+
+    # 2. Group prediction samples that have the same number of last word tokens.
+    #    Note that tensors must have the same dimnsions, thus, we need to this
+    #    grouping step. Accoridng to this [stackoverfollow
+    #    answer](https://stackoverflow.com/a/64180416), using defaultdict is
+    #    the fastes option for array up to 2400 elements, which is enough for
+    #    our case
+
+    # 3. Get all posiible relation in both directions between last token
+
+    # step: 1
+    nonent_mask = th.ne(predictions, word_norm_idx)
+    nonent_mask_rshift = th.cat(
+        (nonent_mask[:, 1:], th.zeros(nonent_mask.size(0), 1, dtype=th.bool)),
+        dim=1)
+    last_word_mask = th.bitwise_and(nonent_mask, ~nonent_mask_rshift)
+
+    # step: 2:
+    group_data = defaultdict(list)
+    num_last_tkns = last_word_mask.sum(dim=1)
+    for i, num in enumerate(num_last_tkns.detach().tolist()):
+        group_data[num].append(i)
+
+    # step: 3
     # NOTE For loop is needed is the number of items are different
-    for num_mask_ne, seq_ids in masked_data.items():
-        # select sequences that have the same number of masked entities and
-        # get the entity_id of the last word
-        seq_ids = th.tensor(seq_ids, dtype=th.long)
-        sub_mask = th.index_select(masked_values, 0, seq_ids)
-        last_word_id = th.nonzero(sub_mask)[:, 1].view(num_mask_ne, -1)
-        # get relations, in both direction
+    for num_last_tokns, idx in group_data.items():
+        if num_last_tkns == 0:
+            yield None, idx
+        # get the last token id in each sample
+        idx_tensor = th.tensor(idx, dtype=th.long)  # sample id to tensor
+        sub_mask = th.index_select(last_word_mask, dim=0, index=idx_tensor)
+        last_word_id = th.nonzero(sub_mask)[:, 1].view(num_last_tokns, -1)
+        # get relations per sample, in both direction
         ne_relations = [
             list(it.permutations(idx)) for idx in last_word_id.tolist()
         ]
 
-        yield ne_relations, seq_ids
+        yield ne_relations, idx

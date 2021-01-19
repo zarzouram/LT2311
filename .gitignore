@@ -1,6 +1,7 @@
 DS/
 pics/
 .vscode
+
 .python-version
 Presentation1.pptx
 dev/preprocess/__pycache__
