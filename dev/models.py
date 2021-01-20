@@ -359,7 +359,7 @@ class NerModule(nn.Module):
     ):
         super(NerModule, self).__init__()
 
-        self.device_param = nn.Parameter(th.empty(0)).device
+        self.model_param = nn.Parameter(th.empty(0))
         self.label_embedding_size = label_embedding_size
 
         # Entity label prediction according to arXiv:1601.00770v3, section 3.4
@@ -403,6 +403,7 @@ class NerModule(nn.Module):
                             (B, SEQ)
                             The predicted labels id
         """
+        device = self.model_param.device
         # LSTM layer
         if h is not None and c is not None:
             lstm_out, _ = self.seqLSTM(batch_embedded,
@@ -419,7 +420,7 @@ class NerModule(nn.Module):
         seq_length = lstm_out.size(1)
         v_t_old = th.zeros(batch_size,
                            self.label_embedding_size,
-                           device=self.device_param)
+                           device=device)
         for i in range(seq_length):  # loop over words
             # construct input, get logits for word_i
             ner_input = th.cat(
@@ -433,17 +434,19 @@ class NerModule(nn.Module):
             label_id_predicted.append(prediction_id.detach().tolist())
             label_one_hot = th.zeros(batch_size,
                                      self.label_embedding_size,
-                                     device=self.device_param)
+                                     device=device)
             label_one_hot[th.arange(batch_size), prediction_id] = 1
             v_t_old = label_one_hot  # v_{t-1} <- v_t
 
         # Reshape logits dimension from (SEQ, B, NE-OUT) to (B, SEQ, NE-OUT)
         # Reshape label_id_predicted from (SEQ, B) to (B, SEQ)
-        logits = th.tensor(logits, device=self.device_param,
-                           dtype=th.float).view(batch_size, seq_length, -1)
+        logits = th.tensor(logits,
+                           device=device,
+                           dtype=th.float,
+                           requires_grad=True).view(batch_size, seq_length, -1)
         label_id_predicted = th.tensor(label_id_predicted,
-                                       device=self.device_param,
-                                       dtype=th.long).view(batch_size, -1)
+                                       device=device,
+                                       dtype=th.float).view(batch_size, -1)
 
         return logits, label_id_predicted
 
@@ -465,8 +468,10 @@ class LSTM_RE(nn.Module):
         tree_bidirectional=True,  # Tree LSTM bidirection
         dropout=0,
     ):
+
         super(LSTM_RE, self).__init__()
 
+        self.model_param = nn.Parameter(th.empty(0))
         # Entity recognition module
         self.module_ner = NerModule(token_embedding_size=token_embedding_size,
                                     label_embedding_size=label_embedding_size,
@@ -497,6 +502,7 @@ class LSTM_RE(nn.Module):
         -------
 
         """
+        # device = self.model_param.device
         # pos, u, v, dep, is_root, is_sent_end
         # batch_size = batch.size(0)
         word_embs = batch["word"]
@@ -512,7 +518,11 @@ class LSTM_RE(nn.Module):
 
         # Get all possible relations in both direction of the last token of the
         # detected entities.
-        relations, seq_ids = sub_batch(ne_predtd, not_entity_id)
+        relations_data = sub_batch(ne_predtd, not_entity_id)
+        for relations, seq_ids in relations_data:
+            print(relations)
+
+        return logits_ner
 
 
 def sub_batch(predictions, word_norm_idx):
@@ -543,7 +553,8 @@ def sub_batch(predictions, word_norm_idx):
     # 3. Get all posiible relation in both directions between last token
 
     # step: 1
-    nonent_mask = th.ne(predictions, word_norm_idx)
+    p = predictions.detach().clone().cpu()
+    nonent_mask = th.ne(p, word_norm_idx)
     nonent_mask_rshift = th.cat(
         (nonent_mask[:, 1:], th.zeros(nonent_mask.size(0), 1, dtype=th.bool)),
         dim=1)
@@ -557,16 +568,19 @@ def sub_batch(predictions, word_norm_idx):
 
     # step: 3
     # NOTE For loop is needed is the number of items are different
-    for num_last_tokns, idx in group_data.items():
-        if num_last_tkns == 0:
-            yield None, idx
-        # get the last token id in each sample
-        idx_tensor = th.tensor(idx, dtype=th.long)  # sample id to tensor
-        sub_mask = th.index_select(last_word_mask, dim=0, index=idx_tensor)
-        last_word_id = th.nonzero(sub_mask)[:, 1].view(num_last_tokns, -1)
-        # get relations per sample, in both direction
-        ne_relations = [
-            list(it.permutations(idx)) for idx in last_word_id.tolist()
-        ]
+    for num_last_tokns_sample, idx in group_data.items():
+        if num_last_tokns_sample <= 1:
+            yield (None, idx)
 
-        yield ne_relations, idx
+        else:
+            # get the last token id in each sample
+            idx_tensor = th.tensor(idx, dtype=th.long)  # sample id to tensor
+            sub_mask = th.index_select(last_word_mask, dim=0, index=idx_tensor)
+            last_word_id = th.nonzero(sub_mask)[:, 1].view(
+                num_last_tokns_sample, -1)
+            # get relations per sample, in both direction
+            ne_relations = [
+                list(it.permutations(idx)) for idx in last_word_id.tolist()
+            ]
+
+            yield (ne_relations, idx)

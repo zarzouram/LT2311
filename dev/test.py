@@ -88,6 +88,53 @@ class Embedings(nn.Module):
             pass
 
 
+def dummy_tag(doc):
+    text_l = [
+        "I firmly believe that", "cooperation during primary education",
+        "through cooperation children",
+        "which are significant in the future life"
+    ]
+    tags = [0, 1]
+    seq_tagged = []
+    for token in doc:
+        if any([token.text in text for text in text_l]):
+            seq_tagged.append(tags[1])
+        else:
+            seq_tagged.append(tags[0])
+    return seq_tagged
+
+
+# %% [markdown]
+# # TRAINING LOOP
+def train(model, batch, labels, epochs=10, lr=0.01):
+    # Define Loss, Optimizer
+    criterion = nn.CrossEntropyLoss()
+    criterion = criterion.to(device)
+    optimizer = th.optim.Adam(model.parameters(), lr=lr)
+
+    labels = labels.view(-1)
+    for epoch in range(epochs):
+        running_loss = 0
+        model.train()
+
+        # resets the gradients after every batch
+        optimizer.zero_grad()
+
+        # forward + backward + optimize
+        outputs = model(batch, 0)
+
+        # predictions
+        outputs = outputs.view(-1, outputs.shape[-1])
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+
+        # loss
+        running_loss += loss.item()
+
+    return model
+
+
 # %% [markdown]
 # # TESTING TreeLSTM
 
@@ -97,18 +144,25 @@ text = """From this point of view, I firmly believe that we should attach more i
 First of all, through cooperation, children can learn about interpersonal
 skills which are significant in the future life of all students."""  # noqa: E501
 
+# QSTN Parameter required Grade for created tensors
+device = th.device('cuda:1' if th.cuda.is_available() else 'cpu')
 emb_size = 6
 doc, vocab = dummy_word2id(text)
 word_vocab = vocab.vocab
 word_seq = [word_vocab[token.text] for token in doc]
-word_seq = th.tensor(word_seq, dtype=th.long).view(1, -1)
+word_seq = th.tensor(word_seq, device=device, dtype=th.long).view(1, -1)
 word_seq = th.cat((word_seq, word_seq, word_seq), dim=0)
+
+labels = dummy_tag(doc)
+labels = th.tensor(labels, device=device, dtype=th.long).view(1, -1)
+labels = th.cat((labels, labels, labels), dim=0)
+
 # Model parameters
 h_size = 10
 emb_size = 6
 label_emb_size = 5
 
-word_embeddings = Embedings(len(word_vocab), emb_size)
+word_embeddings = Embedings(len(word_vocab), emb_size).to(device)
 word_embedding = word_embeddings.embed(word_seq)
 batch = {"word": word_embedding}
 
@@ -116,15 +170,18 @@ model = LSTM_RE(
     token_embedding_size=emb_size,  # Embed dimension for tokens
     label_embedding_size=emb_size,  # Embed dimension for entity label
     dep_embedding_size=emb_size,  # Embed dimension for depedency label
+
     seq_lstm_h_size=h_size,  # Sequential LSTM hidden size
     tree_lstm_h_size=h_size,  # Tree LSTM hidden size
+
     ner_hidden_size=6,  # Entity recognition layer hidden size
     ner_output_size=2,  # Entity recognition layer output size
+
     re_hidden_size=4,  # Relation extraction layer hidden size
     re_output_size=2,  # Relation extraction layer output size
 )
 
-model(batch, 0)
+train(model.to(device), batch, labels)
 
 # Model construct
 # data = prep.DependencyG(text)
